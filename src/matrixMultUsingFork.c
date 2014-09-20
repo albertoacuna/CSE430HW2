@@ -24,10 +24,11 @@ typedef struct SharedData{
     int** matrix2;
     int** solution;
     int slice;
+    pthread_mutex_t lock;
 } sharedStruct;
 
 //prototypes
-void matrixMultiply(sharedStruct params);
+void matrixMultiply(sharedStruct *Cms);
 void matrixLoad(int rc, int**mat, FILE* fr1);
 int matSize(char *line);
 int rc;
@@ -35,16 +36,14 @@ int num_thrd;
 sharedStruct *Cms; /* pointer to output matrix C */
 int Cid;     /* segment id for output matrix C */
 int base_pid;
-pthread_mutex_t lock;
+
 
 
 int main(int argc,char *argv[])
 {
-	pthread_mutex_init(&lock,NULL);
     double time_spent;
     clock_t begin, end;
     begin = clock();
-    pthread_t* thread; //pointer to a group of threads
     num_thrd = atoi(argv[1]);
 
     if ((Cid = shmget(IPC_PRIVATE, sizeof(sharedStruct), IPC_CREAT | 0666)) < 0)
@@ -116,13 +115,21 @@ int main(int argc,char *argv[])
         matrixLoad(rc1, mat1, fr1);
         matrixLoad(rc1,mat2,fr2);
 
-
+        if ((Cms = (sharedStruct *) shmat(Cid, NULL, 0)) == (sharedStruct *) -1){
+                           perror("Process shmat returned NULL\n");
+                           error(-1, errno, " ");
+                       }
+                       else
+                           printf("Process %d attached the segment %d\n", getpid(), Cid);
 //This is where forked processes begin
-        sharedStruct params;
-        params.matrix1= mat1;
-        params.matrix2= mat2;
-        params.solution = solution;
+        Cms->matrix1= mat1;
+        Cms->matrix2= mat2;
+        Cms->solution = solution;
 
+        pthread_mutexattr_t attr;
+        	pthread_mutexattr_init(&attr);
+        	pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+        	pthread_mutex_init(&Cms->lock, &attr);
 
         base_pid = getpid();
             for(i=1; i<num_thrd; i++) {
@@ -131,17 +138,24 @@ int main(int argc,char *argv[])
                 else
                     break;
             }
-
+            if(getpid() != base_pid){
             if ((Cms = (sharedStruct *) shmat(Cid, NULL, 0)) == (sharedStruct *) -1){
                     perror("Process shmat returned NULL\n");
                     error(-1, errno, " ");
                 }
                 else
                     printf("Process %d attached the segment %d\n", getpid(), Cid);
-
+    }
             printf("Process %d about to run matrixMultiply\n", getpid());
-        matrixMultiply(*Cms);
+        matrixMultiply(Cms);
 
+        pthread_mutex_destroy(&Cms->lock);
+        if (getpid()==base_pid)
+                        for(i=1; i<num_thrd; i++) {
+                            wait(NULL);
+                        }
+                    else
+                        exit(0);
 
         if (shmdt(Cms) == -1){
                 perror("shmdt returned -1\n");
@@ -149,12 +163,7 @@ int main(int argc,char *argv[])
             }else
                 printf("Process %d detached the segment %d\n", getpid(), Cid);
 
-        if (getpid()==base_pid)
-                for(i=1; i<num_thrd; i++) {
-                    wait(NULL);
-                }
-            else
-                exit(0);
+
 
 
         fclose(fr1);
@@ -249,23 +258,24 @@ int matSize(char *line)
 
 //The following function will take two matrices as input and return the
 //product matrix
-void matrixMultiply(sharedStruct matrices)
+void matrixMultiply(sharedStruct *Cms)
 {
 	printf("Process %d running matrixMultiply\n", getpid());
-    pthread_mutex_lock(&lock);
-    int s = matrices.slice;
-    matrices.slice++;
-    pthread_mutex_unlock(&lock);
+    pthread_mutex_lock(&Cms->lock);
+    int s = Cms->slice;
+    printf("Process %d = %d\n", getpid(), Cms->slice);
+    Cms->slice++;
+    pthread_mutex_unlock(&Cms->lock);
 
     int from = (s*rc)/num_thrd;
     int to = ((s+1)*rc)/num_thrd;
-
+    printf("Process %d from %d to %d\n", getpid(),from, to);
     for(int i =from; i < to;++i)
     {
         for(int j=0;j<rc; ++j){
-            matrices.solution[i][j] = 0;
+        	Cms->solution[i][j] = 0;
             for(int k=0; k<rc; ++k){
-                matrices.solution[i][j] += matrices.matrix1[i][k]*matrices.matrix2[k][j];
+            	Cms->solution[i][j] += Cms->matrix1[i][k]*Cms->matrix2[k][j];
             }
         }
     }
