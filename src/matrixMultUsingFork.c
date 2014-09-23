@@ -7,35 +7,56 @@
 #include <unistd.h>
 #include <errno.h>
 #include <error.h>
+#include <sys/resource.h>
+#include <limits.h>
+
+#define N 2048
 
 typedef struct SharedData {
-	int* matrix1;
-	int* matrix2;
-	int* solution;
+	int matrix1[N][N];
+	int matrix2[N][N];
+	int solution[N][N];
 	int slice;
 	pthread_mutex_t lock;
 } sharedStruct;
 
 //prototypes
 void matrixMultiply(sharedStruct *Cms);
-void matrixLoad(FILE *file, int* matrix);
+void matrixLoad(FILE *file, int matrix[N][N]);
 int matSize(char *line);
 sharedStruct* sharedMemoryAttach();
 void sharedMemoryDetach();
 void destroySharedMemory();
+void printMatrix(int matriz[N][N]);
+void matrixToFile(FILE *fw);
 
 int rc;
 int num_thrd;
 sharedStruct *Cms; /* pointer to shared struct */
 int structId; /* segment id for output matrix C */
-int mat1Id;
-int mat2Id;
-int solutionId;
 int base_pid;
 int charCount = 10000;
 
 int main(int argc, char *argv[]) {
-	num_thrd = atoi(argv[1]);
+	const rlim_t stackSize = (N);
+	struct rlimit r1;
+	int result;
+	result = getrlimit(RLIMIT_STACK, &r1);
+	if (result == 0) {
+		printf("Size: %d\n", r1.rlim_cur);
+		if (r1.rlim_cur < stackSize) {
+			r1.rlim_cur = stackSize;
+			result = setrlimit(RLIMIT_STACK, &r1);
+
+		}
+	}
+
+//	result = getrlimit(RLIMIT_STACK, &r1);
+//	if (result == 0) {
+//		printf("Size: %d\n", r1.rlim_cur);
+//	}
+
+	num_thrd = atoi(argv[4]);
 
 	FILE *fr1, *fr2, *fw; //File pointers
 	//int **mat1, **mat2, **solution; //To hold the matrix from the input file
@@ -50,7 +71,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	//To read a file use the fopen() function to open it
-	fr1 = fopen(argv[2], "r");
+	fr1 = fopen(argv[1], "r");
 
 	//If the file fails to open the fopen() returns a NULL
 	if (fr1 == NULL) {
@@ -59,7 +80,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	// Similar to the above method read the second file
-	fr2 = fopen(argv[3], "r");
+	fr2 = fopen(argv[2], "r");
 	if (fr2 == NULL) {
 		printf("Cannot open %s. Program terminated...", argv[2]);
 		exit(1);
@@ -73,20 +94,20 @@ int main(int argc, char *argv[]) {
 	fclose(fr1);
 	fclose(fr2);
 
-	fr1 = fopen(argv[2], "r");
+	fr1 = fopen(argv[1], "r");
 
-		//If the file fails to open the fopen() returns a NULL
-		if (fr1 == NULL) {
-			printf("Cannot open %s. Program terminated...", argv[1]);
-			exit(1);
-		}
+	//If the file fails to open the fopen() returns a NULL
+	if (fr1 == NULL) {
+		printf("Cannot open %s. Program terminated...", argv[1]);
+		exit(1);
+	}
 
-		// Similar to the above method read the second file
-		fr2 = fopen(argv[3], "r");
-		if (fr2 == NULL) {
-			printf("Cannot open %s. Program terminated...", argv[2]);
-			exit(1);
-		}
+	// Similar to the above method read the second file
+	fr2 = fopen(argv[2], "r");
+	if (fr2 == NULL) {
+		printf("Cannot open %s. Program terminated...", argv[2]);
+		exit(1);
+	}
 
 	if (rc1 == rc2) {
 		rc = rc1;
@@ -94,38 +115,17 @@ int main(int argc, char *argv[]) {
 
 		//-----------------------------------------------------------
 		//load up both matricies
-		if ((structId = shmget(IPC_PRIVATE, sizeof(sharedStruct), IPC_CREAT | 0666)) < 0)
-			{
-				perror("smget returned -1\n");
-				error(-1, errno, " ");
-				exit(-1);
-			}
-			if ((mat1Id = shmget(IPC_PRIVATE, sizeof(rc*rc * sizeof(int)), IPC_CREAT | 0666)) < 0)
-							{
-								perror("smget returned -1\n");
-								error(-1, errno, " ");
-								exit(-1);
-							}
-			if ((mat2Id = shmget(IPC_PRIVATE, sizeof(rc*rc * sizeof(int)), IPC_CREAT | 0666)) < 0)
-								{
-									perror("smget returned -1\n");
-									error(-1, errno, " ");
-									exit(-1);
-								}
-			if ((solutionId = shmget(IPC_PRIVATE, sizeof(rc*rc * sizeof(int)), IPC_CREAT | 0666)) < 0)
-								{
-									perror("smget returned -1\n");
-									error(-1, errno, " ");
-									exit(-1);
-								}
+		if ((structId = shmget(IPC_PRIVATE, sizeof(sharedStruct),
+		IPC_CREAT | 0666)) < 0) {
+			perror("smget returned -1\n");
+			error(-1, errno, " ");
+			exit(-1);
+		}
 
-		if ((Cms = sharedMemoryAttach())
-				== (sharedStruct *) -1)
-		{
+		if ((Cms = sharedMemoryAttach()) == (sharedStruct *) -1) {
 			perror("Process shmat returned NULL\n");
 			error(-1, errno, " ");
-		}
-		else
+		} else
 			printf("Process %d attached the segment\n", getpid());
 
 		matrixLoad(fr1, Cms->matrix1);
@@ -141,8 +141,7 @@ int main(int argc, char *argv[]) {
 			if (getpid() == base_pid)
 				fork();
 			else {
-				if ((Cms = sharedMemoryAttach())
-						== (sharedStruct *) -1) {
+				if ((Cms = sharedMemoryAttach()) == (sharedStruct *) -1) {
 					perror("Process shmat returned NULL\n");
 					error(-1, errno, " ");
 				} else
@@ -158,8 +157,7 @@ int main(int argc, char *argv[]) {
 			for (int i = 1; i < num_thrd; i++) {
 				wait(NULL);
 			}
-		}
-		else {
+		} else {
 			sharedMemoryDetach();
 		}
 
@@ -175,28 +173,17 @@ int main(int argc, char *argv[]) {
 	if (getpid() == base_pid) {
 		if (toStdOut == 1) {
 			//Create the output file
-			fw = fopen(argv[4], "w");
-			//Check if the file has been created successfully or not
+			fw = fopen(argv[3], "w");
 			if (fw == NULL) {
 				printf("File not created. Program terminated...");
 				exit(1);
 			}
-			int i, k;
-			for (i = 0; i < rc1; ++i) {
-				for (k = 0; k < rc1; ++k) {
-					fprintf(fw, "%d ", Cms->solution[rc*k+i]);
-				}
-				fprintf(fw, "\n");
-			}
+
+			matrixToFile(fw);
 			fclose(fw);
+
 		} else {
-			int i, k;
-			for (i = 0; i < rc1; ++i) {
-				for (k = 0; k < rc1; ++k) {
-					printf("%d ", Cms->solution[rc*k+i]);
-				}
-				printf("\n");
-			}
+			printMatrix(Cms->solution);
 
 		}
 	}
@@ -206,6 +193,28 @@ int main(int argc, char *argv[]) {
 	destroySharedMemory();
 
 	return 0;
+}
+
+void printMatrix(int matrix[N][N]) {
+	int i, k;
+	for (i = 0; i < rc; ++i) {
+		for (k = 0; k < rc; ++k) {
+			printf("%d ", matrix[k][i]);
+		}
+		printf("\n");
+	}
+}
+
+void matrixToFile(FILE *fw) {
+	//Check if the file has been created successfully or not
+	printf("Printing file\n");
+	int i, k;
+	for (i = 0; i < rc; ++i) {
+		for (k = 0; k < rc; ++k) {
+			fprintf(fw, "%d ", Cms->solution[i][k]);
+		}
+		fprintf(fw, "\n");
+	}
 }
 
 int matSize(char *line) {
@@ -236,9 +245,9 @@ void matrixMultiply(sharedStruct *Cms) {
 	printf("Process %d from %d to %d\n", getpid(), from, to);
 	for (int i = from; i < to; ++i) {
 		for (int j = 0; j < rc; ++j) {
-			Cms->solution[rc*i+j] = 0;
+			Cms->solution[i][j] = 0;
 			for (int k = 0; k < rc; ++k) {
-				Cms->solution[rc *i+j] += Cms->matrix1[rc*i+k] * Cms->matrix2[rc*k+j];
+				Cms->solution[i][j] += Cms->matrix1[i][k] * Cms->matrix2[k][j];
 			}
 		}
 	}
@@ -257,8 +266,7 @@ void matrixMultiply(sharedStruct *Cms) {
 //
 //}
 
-void matrixLoad(FILE *file, int* matrix)
-{
+void matrixLoad(FILE *file, int matrix[N][N]) {
 	char line[charCount];
 	char delimeters[] = " ";
 	char *cp;
@@ -266,87 +274,45 @@ void matrixLoad(FILE *file, int* matrix)
 
 	fgets(line, charCount, file);
 	int x = 0;
-	while(line != NULL){
+	while (line != NULL && x < rc) {
 		cp = strdup(line);
 		token = strtok(cp, delimeters);
 		int y = 0;
-		while((strcmp(token, "\n") != 0) && token != NULL)
+		while (token != NULL && y < rc)
 		{
-			matrix[rc*x+y] = atoi(token);
 
-			y++;
-			token = strtok(NULL, delimeters);
+				matrix[y][x] = atoi(token);
+
+				y++;
+				token = strtok(NULL, delimeters);
 		}
 
-		x++;
+			x++;
 
-		if(fgets(line, charCount, file) == NULL)
-			break;
+			if (fgets(line, charCount, file) == NULL)
+				break;
 	}
-
 }
 
-
-sharedStruct* sharedMemoryAttach(){
-	Cms = (sharedStruct*)shmat(structId, NULL, 0);
-
-	Cms->matrix1 = (int*)shmat(mat1Id, NULL, 0);
-	Cms->matrix2 = (int*)shmat(mat2Id, NULL, 0);
-	Cms->solution = (int*)shmat(solutionId, NULL, 0);
-
+sharedStruct* sharedMemoryAttach() {
+	Cms = (sharedStruct*) shmat(structId, NULL, 0);
 	return Cms;
 }
-void sharedMemoryDetach(){
-	if (shmdt((void*)Cms->matrix1) == -1) {
-					perror("shmdt returned -1\n");
-					error(-1, errno, " ");
-				} else {
-					printf("Process %d detached the segment\n", getpid());
-					exit(0);
-				}
-	if (shmdt((void*)Cms->matrix2) == -1) {
-					perror("shmdt returned -1\n");
-					error(-1, errno, " ");
-				} else {
-					printf("Process %d detached the segment\n", getpid());
-					exit(0);
-				}
-	if (shmdt((void*)Cms->solution) == -1) {
-					perror("shmdt returned -1\n");
-					error(-1, errno, " ");
-				} else {
-					printf("Process %d detached the segment\n", getpid());
-					exit(0);
-				}
 
-	if (shmdt((void*)Cms) == -1) {
-						perror("shmdt returned -1\n");
-						error(-1, errno, " ");
-					} else {
-						printf("Process %d detached the segment\n", getpid());
-						exit(0);
-					}
+void sharedMemoryDetach() {
+	if (shmdt((void*) Cms) == -1) {
+		perror("shmdt returned -1\n");
+		error(-1, errno, " ");
+	} else {
+		printf("Process %d detached the segment\n", getpid());
+		exit(0);
+	}
 }
 
-void destroySharedMemory(){
+void destroySharedMemory() {
 	if (shmctl(structId, IPC_RMID, NULL) == -1) {
-			perror("shmctl returned -1\n");
-			error(-1, errno, " ");
-		}
-
-	if (shmctl(mat1Id, IPC_RMID, NULL) == -1) {
-				perror("shmctl returned -1\n");
-				error(-1, errno, " ");
-			}
-
-	if (shmctl(mat2Id, IPC_RMID, NULL) == -1) {
-				perror("shmctl returned -1\n");
-				error(-1, errno, " ");
-			}
-	if (shmctl(solutionId, IPC_RMID, NULL) == -1) {
-				perror("shmctl returned -1\n");
-				error(-1, errno, " ");
-			}
-
+		perror("shmctl returned -1\n");
+		error(-1, errno, " ");
+	}
 }
 
