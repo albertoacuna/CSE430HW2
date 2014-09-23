@@ -1,61 +1,47 @@
-/*
- * The following is a simple program in C that takes the name of a file as a
- * command line argument and prints its contents into an output file. It uses
- * fscanf() and fprintf() to format the input and output respectively.
- *
- */
-#include <sys/shm.h>
-#include <sys/wait.h>
 #include<stdio.h>
 #include<stdlib.h>
-#include<sys/time.h>
 #include<pthread.h>
 #include<string.h>
 #include <sys/shm.h>
 #include <sys/wait.h>
-#include <malloc.h>
-#include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <error.h>
 
 typedef struct SharedData {
-	int** matrix1;
-	int** matrix2;
-	int** solution;
+	int* matrix1;
+	int* matrix2;
+	int* solution;
 	int slice;
 	pthread_mutex_t lock;
 } sharedStruct;
 
 //prototypes
 void matrixMultiply(sharedStruct *Cms);
-void matrixLoad(int rc, int**mat, FILE* fr1);
+void matrixLoad(FILE *file, int* matrix);
 int matSize(char *line);
+sharedStruct* sharedMemoryAttach();
+void sharedMemoryDetach();
+void destroySharedMemory();
+
 int rc;
 int num_thrd;
-sharedStruct *Cms; /* pointer to output matrix C */
-int Cid; /* segment id for output matrix C */
+sharedStruct *Cms; /* pointer to shared struct */
+int structId; /* segment id for output matrix C */
+int mat1Id;
+int mat2Id;
+int solutionId;
 int base_pid;
+int charCount = 10000;
 
 int main(int argc, char *argv[]) {
-	double time_spent;
-	clock_t begin, end;
-	begin = clock();
 	num_thrd = atoi(argv[1]);
 
-	if ((Cid = shmget(IPC_PRIVATE, sizeof(sharedStruct), IPC_CREAT | 0666))
-			< 0) {
-		perror("smget returned -1\n");
-		error(-1, errno, " ");
-		exit(-1);
-	}
-
-	//start timer
 	FILE *fr1, *fr2, *fw; //File pointers
-	int **mat1, **mat2, **solution; //To hold the matrix from the input file
+	//int **mat1, **mat2, **solution; //To hold the matrix from the input file
 	int rc1, rc2; //To hold the number of rows and columns
 	int toStdOut = 1; //This is a flag variable. 0 for file output,1 for std out
-	char line[10000]; //for extract a char of lines
+	char line[charCount]; //for extract a char of lines
 
 	//Check for the number of command line arguments
 	if (argc != 5) {
@@ -84,40 +70,66 @@ int main(int argc, char *argv[]) {
 	rc1 = matSize(line);
 	fgets(line, 10000, fr2);
 	rc2 = matSize(line);
+	fclose(fr1);
+	fclose(fr2);
+
+	fr1 = fopen(argv[2], "r");
+
+		//If the file fails to open the fopen() returns a NULL
+		if (fr1 == NULL) {
+			printf("Cannot open %s. Program terminated...", argv[1]);
+			exit(1);
+		}
+
+		// Similar to the above method read the second file
+		fr2 = fopen(argv[3], "r");
+		if (fr2 == NULL) {
+			printf("Cannot open %s. Program terminated...", argv[2]);
+			exit(1);
+		}
 
 	if (rc1 == rc2) {
 		rc = rc1;
 		//memory allocation for arrays
-		mat1 = (int **) malloc(sizeof(int *) * rc);
-		mat2 = (int **) malloc(sizeof(int *) * rc);
-		solution = (int **) malloc(sizeof(int *) * rc);
-		int i;
-		for (i = 0; i < rc1; ++i) {
-			mat1[i] = malloc(rc1 * sizeof(int));
-		}
 
-		for (i = 0; i < rc1; ++i) {
-			mat2[i] = malloc(rc1 * sizeof(int));
-		}
-
-		for (i = 0; i < rc1; ++i) {
-			solution[i] = malloc(rc1 * sizeof(int));
-		}
 		//-----------------------------------------------------------
 		//load up both matricies
-		matrixLoad(rc1, mat1, fr1);
-		matrixLoad(rc1, mat2, fr2);
+		if ((structId = shmget(IPC_PRIVATE, sizeof(sharedStruct), IPC_CREAT | 0666)) < 0)
+			{
+				perror("smget returned -1\n");
+				error(-1, errno, " ");
+				exit(-1);
+			}
+			if ((mat1Id = shmget(IPC_PRIVATE, sizeof(rc*rc * sizeof(int)), IPC_CREAT | 0666)) < 0)
+							{
+								perror("smget returned -1\n");
+								error(-1, errno, " ");
+								exit(-1);
+							}
+			if ((mat2Id = shmget(IPC_PRIVATE, sizeof(rc*rc * sizeof(int)), IPC_CREAT | 0666)) < 0)
+								{
+									perror("smget returned -1\n");
+									error(-1, errno, " ");
+									exit(-1);
+								}
+			if ((solutionId = shmget(IPC_PRIVATE, sizeof(rc*rc * sizeof(int)), IPC_CREAT | 0666)) < 0)
+								{
+									perror("smget returned -1\n");
+									error(-1, errno, " ");
+									exit(-1);
+								}
 
-		if ((Cms = (sharedStruct *) shmat(Cid, NULL, 0))
-				== (sharedStruct *) -1) {
+		if ((Cms = sharedMemoryAttach())
+				== (sharedStruct *) -1)
+		{
 			perror("Process shmat returned NULL\n");
 			error(-1, errno, " ");
-		} else
-			printf("Process %d attached the segment %d\n", getpid(), Cid);
-//This is where forked processes begin
-		Cms->matrix1 = mat1;
-		Cms->matrix2 = mat2;
-		Cms->solution = solution;
+		}
+		else
+			printf("Process %d attached the segment\n", getpid());
+
+		matrixLoad(fr1, Cms->matrix1);
+		matrixLoad(fr2, Cms->matrix2);
 
 		pthread_mutexattr_t attr;
 		pthread_mutexattr_init(&attr);
@@ -125,17 +137,16 @@ int main(int argc, char *argv[]) {
 		pthread_mutex_init(&Cms->lock, &attr);
 
 		base_pid = getpid();
-		for (i = 1; i < num_thrd; i++) {
+		for (int i = 1; i < num_thrd; i++) {
 			if (getpid() == base_pid)
 				fork();
 			else {
-				if ((Cms = (sharedStruct *) shmat(Cid, NULL, 0))
+				if ((Cms = sharedMemoryAttach())
 						== (sharedStruct *) -1) {
 					perror("Process shmat returned NULL\n");
 					error(-1, errno, " ");
 				} else
-					printf("Process %d attached the segment %d\n", getpid(),
-							Cid);
+					printf("Process %d attached the segment\n", getpid());
 				break;
 			}
 		}
@@ -144,17 +155,12 @@ int main(int argc, char *argv[]) {
 		matrixMultiply(Cms);
 
 		if (getpid() == base_pid) {
-			for (i = 1; i < num_thrd; i++) {
+			for (int i = 1; i < num_thrd; i++) {
 				wait(NULL);
 			}
-		} else {
-			if (shmdt((void*)Cms) == -1) {
-				perror("shmdt returned -1\n");
-				error(-1, errno, " ");
-			} else {
-				printf("Process %d detached the segment %d\n", getpid(), Cid);
-				exit(0);
-			}
+		}
+		else {
+			sharedMemoryDetach();
 		}
 
 		fclose(fr1);
@@ -178,7 +184,7 @@ int main(int argc, char *argv[]) {
 			int i, k;
 			for (i = 0; i < rc1; ++i) {
 				for (k = 0; k < rc1; ++k) {
-					fprintf(fw, "%d ", solution[k][i]);
+					fprintf(fw, "%d ", Cms->solution[rc*k+i]);
 				}
 				fprintf(fw, "\n");
 			}
@@ -187,41 +193,20 @@ int main(int argc, char *argv[]) {
 			int i, k;
 			for (i = 0; i < rc1; ++i) {
 				for (k = 0; k < rc1; ++k) {
-					printf("%d ", solution[k][i]);
+					printf("%d ", Cms->solution[rc*k+i]);
 				}
 				printf("\n");
 			}
 
 		}
-		//end timer
-		end = clock();
-		time_spent = (double) (end - begin) / 1000;
-
-		printf("\n%.4f seconds elapsed\n", time_spent);
 	}
 
 	pthread_mutex_destroy(&Cms->lock);
-	if (shmctl(Cid, IPC_RMID, NULL) == -1) {
-		perror("shmctl returned -1\n");
-		error(-1, errno, " ");
-	}
+	sharedMemoryDetach();
+	destroySharedMemory();
+
 	return 0;
 }
-
-//The following function will count the number of elements per line
-//and return the number of rows and columns for the matrix
-//int matSize(char *line)
-//{
-//    int count=0;
-//    int i;
-//    int length = strlen(line);
-//    for( i=0; i < length;++i)
-//    {
-//        if(line[i] != ' ' && line[i] != '\n')
-//            ++count;
-//    }
-//    return count;
-//}
 
 int matSize(char *line) {
 	int count = 0;
@@ -251,23 +236,117 @@ void matrixMultiply(sharedStruct *Cms) {
 	printf("Process %d from %d to %d\n", getpid(), from, to);
 	for (int i = from; i < to; ++i) {
 		for (int j = 0; j < rc; ++j) {
-			Cms->solution[i][j] = 0;
+			Cms->solution[rc*i+j] = 0;
 			for (int k = 0; k < rc; ++k) {
-				Cms->solution[i][j] += Cms->matrix1[i][k] * Cms->matrix2[k][j];
+				Cms->solution[rc *i+j] += Cms->matrix1[rc*i+k] * Cms->matrix2[rc*k+j];
 			}
 		}
 	}
 }
 //funtion to load up the matrices
-void matrixLoad(int rc, int **mat, FILE* fr1) {
-	int val, i, k;
+//void matrixLoad(int *mat, FILE* fr1) {
+//	int val, i, k;
+//
+//	rewind(fr1);
+//	for (i = 0; i < rc; ++i) {
+//		for (k = 0; k < rc; ++k) {
+//			fscanf(fr1, "%i", &val);
+//			mat[rc*i+k] = val;
+//		}
+//	}
+//
+//}
 
-	rewind(fr1);
-	for (i = 0; i < rc; ++i) {
-		for (k = 0; k < rc; ++k) {
-			fscanf(fr1, "%i", &val);
-			mat[k][i] = val;
+void matrixLoad(FILE *file, int* matrix)
+{
+	char line[charCount];
+	char delimeters[] = " ";
+	char *cp;
+	char *token;
+
+	fgets(line, charCount, file);
+	int x = 0;
+	while(line != NULL){
+		cp = strdup(line);
+		token = strtok(cp, delimeters);
+		int y = 0;
+		while((strcmp(token, "\n") != 0) && token != NULL)
+		{
+			matrix[rc*x+y] = atoi(token);
+
+			y++;
+			token = strtok(NULL, delimeters);
 		}
+
+		x++;
+
+		if(fgets(line, charCount, file) == NULL)
+			break;
 	}
 
 }
+
+
+sharedStruct* sharedMemoryAttach(){
+	Cms = (sharedStruct*)shmat(structId, NULL, 0);
+
+	Cms->matrix1 = (int*)shmat(mat1Id, NULL, 0);
+	Cms->matrix2 = (int*)shmat(mat2Id, NULL, 0);
+	Cms->solution = (int*)shmat(solutionId, NULL, 0);
+
+	return Cms;
+}
+void sharedMemoryDetach(){
+	if (shmdt((void*)Cms->matrix1) == -1) {
+					perror("shmdt returned -1\n");
+					error(-1, errno, " ");
+				} else {
+					printf("Process %d detached the segment\n", getpid());
+					exit(0);
+				}
+	if (shmdt((void*)Cms->matrix2) == -1) {
+					perror("shmdt returned -1\n");
+					error(-1, errno, " ");
+				} else {
+					printf("Process %d detached the segment\n", getpid());
+					exit(0);
+				}
+	if (shmdt((void*)Cms->solution) == -1) {
+					perror("shmdt returned -1\n");
+					error(-1, errno, " ");
+				} else {
+					printf("Process %d detached the segment\n", getpid());
+					exit(0);
+				}
+
+	if (shmdt((void*)Cms) == -1) {
+						perror("shmdt returned -1\n");
+						error(-1, errno, " ");
+					} else {
+						printf("Process %d detached the segment\n", getpid());
+						exit(0);
+					}
+}
+
+void destroySharedMemory(){
+	if (shmctl(structId, IPC_RMID, NULL) == -1) {
+			perror("shmctl returned -1\n");
+			error(-1, errno, " ");
+		}
+
+	if (shmctl(mat1Id, IPC_RMID, NULL) == -1) {
+				perror("shmctl returned -1\n");
+				error(-1, errno, " ");
+			}
+
+	if (shmctl(mat2Id, IPC_RMID, NULL) == -1) {
+				perror("shmctl returned -1\n");
+				error(-1, errno, " ");
+			}
+	if (shmctl(solutionId, IPC_RMID, NULL) == -1) {
+				perror("shmctl returned -1\n");
+				error(-1, errno, " ");
+			}
+
+}
+
