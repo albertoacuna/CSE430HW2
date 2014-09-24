@@ -1,0 +1,99 @@
+#!/bin/bash
+
+gcc matrixmult_proccess.c -o matrixmult_proccess -std=c99 -lpthread -w
+chmod 755 matrixmult_proccess
+for i in {1..5}
+do
+	echo "Size: 128x128 Process: 1"
+	time -p ./matrixmult_proccess input/matrix1_128.txt input/matrix2_128.txt result.txt 1
+	echo ""
+	echo "Size: 128x128 Process: 4"
+	time -p ./matrixmult_proccess input/matrix1_128.txt input/matrix2_128.txt result.txt 4
+	echo ""
+	echo "Size: 128x128 Process: 16"
+	time -p ./matrixmult_proccess input/matrix1_128.txt input/matrix2_128.txt result.txt 16
+	echo ""
+	echo "Size: 128x128 Process: 64"
+	time -p ./matrixmult_proccess input/matrix1_128.txt input/matrix2_128.txt result.txt 64
+	echo ""
+	echo "Size: 128x128 Process: 256"
+	time -p ./matrixmult_proccess input/matrix1_128.txt input/matrix2_128.txt result.txt 256
+	echo " "
+done
+echo " "
+for i in {1..5}
+do
+	echo "Size: 256x256 Process: 1"
+	time -p ./matrixmult_proccess input/matrix1_256.txt input/matrix2_256.txt result.txt 1
+	echo " "
+	echo "Size: 256x256 Process: 4"
+	time -p ./matrixmult_proccess input/matrix1_256.txt input/matrix2_256.txt result.txt 4
+	echo " "
+	echo "Size: 256x256 Process: 16"
+	time -p ./matrixmult_proccess input/matrix1_256.txt input/matrix2_256.txt result.txt 16
+	echo " "
+	echo "Size: 256x256 Process: 64"
+	time -p ./matrixmult_proccess input/matrix1_256.txt input/matrix2_256.txt result.txt 64
+	echo " "
+	echo "Size: 256x256 Process: 256"
+	time -p ./matrixmult_proccess input/matrix1_256.txt input/matrix2_256.txt result.txt 256
+	echo " "
+done
+echo " "
+
+for i in {1..5}
+do
+	echo "Size: 512x512 Process: 1"
+	time -p ./matrixmult_proccess input/matrix1_512.txt input/matrix2_512.txt result.txt 1
+	echo " "
+	echo "Size: 512x512 Process: 4"
+	time -p ./matrixmult_proccess input/matrix1_512.txt input/matrix2_512.txt result.txt 4
+	echo " "
+	echo "Size: 512x512 Process: 16"
+	time -p ./matrixmult_proccess input/matrix1_512.txt input/matrix2_512.txt result.txt 16
+	echo " "
+
+	echo "Size: 512x512 Process: 64"
+	time -p ./matrixmult_proccess input/matrix1_512.txt input/matrix2_512.txt result.txt 64
+	echo " "
+	echo "Size: 512x512 Process: 256"
+	time -p ./matrixmult_proccess input/matrix1_512.txt input/matrix2_512.txt result.txt 256
+	echo " "
+done
+# echo " "
+for i in {1..5}
+do
+	echo "Size: 1024x1024 Process: 1"
+	time -p ./matrixmult_proccess input/matrix1_1024.txt input/matrix2_1024.txt result.txt 1
+	echo " "
+	echo "Size: 1024x1024 Process: 4"
+	time -p ./matrixmult_proccess input/matrix1_1024.txt input/matrix2_1024.txt result.txt 4
+	echo " "
+	echo "Size: 1024x1024 Process: 16"
+	time -p ./matrixmult_proccess input/matrix1_1024.txt input/matrix2_1024.txt result.txt 16
+	echo " "
+	echo "Size: 1024x1024 Process: 64"
+	time -p ./matrixmult_proccess input/matrix1_1024.txt input/matrix2_1024.txt result.txt 64
+	echo " "
+	echo "Size: 1024x1024 Process: 256"
+	time -p ./matrixmult_proccess input/matrix1_1024.txt input/matrix2_1024.txt result.txt 256
+done
+
+for i in {1..5}
+do
+echo " "
+	echo "Size: 2048x2048 Process: 1"
+	time -p ./matrixmult_proccess input/matrix1_2048.txt input/matrix2_2048.txt result.txt 1
+	echo " "
+	echo "Size: 2048x2048 Process: 4"
+	time -p ./matrixmult_proccess input/matrix1_2048.txt input/matrix2_2048.txt result.txt 4
+	echo " "
+	echo "Size: 2048x2048 Process: 16"
+	time -p ./matrixmult_proccess input/mmatrix1_2048.txt input/matrix2_2048.txt result.txt 16
+	echo " "
+	echo "Size: 2048x2048 Process: 64"
+	time -p ./matrixmult_proccess input/matrix1_2048.txt input/matrix2_2048.txt result.txt 64
+	echo " "
+	echo "Size: 2048x2048 Process: 256"
+	time -p ./matrixmult_proccess input/matrix1_2048.txt input/matrix2_2048.txt result.txt 256
+done
