@@ -7,8 +7,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <error.h>
-#include <sys/resource.h>
-#include <limits.h>
 
 #define N 2048
 
@@ -38,24 +36,6 @@ int base_pid;
 int charCount = 10000;
 
 int main(int argc, char *argv[]) {
-	const rlim_t stackSize = (N);
-	struct rlimit r1;
-	int result;
-	result = getrlimit(RLIMIT_STACK, &r1);
-	if (result == 0) {
-		printf("Size: %d\n", r1.rlim_cur);
-		if (r1.rlim_cur < stackSize) {
-			r1.rlim_cur = stackSize;
-			result = setrlimit(RLIMIT_STACK, &r1);
-
-		}
-	}
-
-//	result = getrlimit(RLIMIT_STACK, &r1);
-//	if (result == 0) {
-//		printf("Size: %d\n", r1.rlim_cur);
-//	}
-
 	num_thrd = atoi(argv[4]);
 
 	FILE *fr1, *fr2, *fw; //File pointers
@@ -125,8 +105,7 @@ int main(int argc, char *argv[]) {
 		if ((Cms = sharedMemoryAttach()) == (sharedStruct *) -1) {
 			perror("Process shmat returned NULL\n");
 			error(-1, errno, " ");
-		} else
-			printf("Process %d attached the segment\n", getpid());
+		}
 
 		matrixLoad(fr1, Cms->matrix1);
 		matrixLoad(fr2, Cms->matrix2);
@@ -144,13 +123,11 @@ int main(int argc, char *argv[]) {
 				if ((Cms = sharedMemoryAttach()) == (sharedStruct *) -1) {
 					perror("Process shmat returned NULL\n");
 					error(-1, errno, " ");
-				} else
-					printf("Process %d attached the segment\n", getpid());
+				}
 				break;
 			}
 		}
 
-		printf("Process %d about to run matrixMultiply\n", getpid());
 		matrixMultiply(Cms);
 
 		if (getpid() == base_pid) {
@@ -207,7 +184,6 @@ void printMatrix(int matrix[N][N]) {
 
 void matrixToFile(FILE *fw) {
 	//Check if the file has been created successfully or not
-	printf("Printing file\n");
 	int i, k;
 	for (i = 0; i < rc; ++i) {
 		for (k = 0; k < rc; ++k) {
@@ -233,16 +209,13 @@ int matSize(char *line) {
 //The following function will take two matrices as input and return the
 //product matrix
 void matrixMultiply(sharedStruct *Cms) {
-	printf("Process %d running matrixMultiply\n", getpid());
 	pthread_mutex_lock(&Cms->lock);
 	int s = Cms->slice;
-	printf("Process %d = %d\n", getpid(), Cms->slice);
 	Cms->slice++;
 	pthread_mutex_unlock(&Cms->lock);
 
 	int from = (s * rc) / num_thrd;
 	int to = ((s + 1) * rc) / num_thrd;
-	printf("Process %d from %d to %d\n", getpid(), from, to);
 	for (int i = from; i < to; ++i) {
 		for (int j = 0; j < rc; ++j) {
 			Cms->solution[i][j] = 0;
@@ -304,7 +277,6 @@ void sharedMemoryDetach() {
 		perror("shmdt returned -1\n");
 		error(-1, errno, " ");
 	} else {
-		printf("Process %d detached the segment\n", getpid());
 		exit(0);
 	}
 }
